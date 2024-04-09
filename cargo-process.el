@@ -58,6 +58,7 @@
 (require 'button)
 (require 'markdown-mode)
 (require 'tramp)
+(require 'cl-lib)
 
 (defgroup cargo-process nil
   "Cargo Process group."
@@ -352,13 +353,15 @@ If FILE-NAME is not a TRAMP file, return it unmodified."
                                    (cdr (assoc 'workspace_root metadata-json)))))
       workspace-root)))
 
-(defun cargo-process--get-metadata ()
+(defun cargo-process--get-metadata (&optional no-deps)
   "Return the metadata of the current package as an alist."
   (when (cargo-process--project-root)
     (let ((metadata-text
            (shell-command-to-string
             (concat (shell-quote-argument cargo-process--custom-path-to-bin)
-                    " metadata --format-version 1"))))
+                    " metadata --format-version 1"
+                    (when no-deps
+                      " --no-deps")))))
       (cargo-json-read-from-string metadata-text))))
 
 (defun manifest-path-argument (name)
@@ -665,12 +668,21 @@ Cargo: Build and execute a specific binary"
   (cargo-process--start (concat "Run " command)
                         (concat cargo-process--command-run-bin " " command)))
 
+(defun cargo-process--list-examples ()
+  (let ((metadata (cargo-process--get-metadata t)))
+    (cl-loop for package across (cdr (assoc 'packages metadata))
+             append (cl-loop for target across (cdr (assoc 'targets package))
+                             when (seq-some (lambda (kind)
+                                              (string= "example" kind))
+                                            (cdr (assoc 'kind target)))
+                             collect (cdr (assoc 'name target))))))
+
 ;;;###autoload
 (defun cargo-process-run-example (command)
   "Run the Cargo run command --example <name>.
 With the prefix argument, modify the command's invocation.
 Cargo: Build and execute with --example <name>."
-  (interactive "sExample name: ")
+  (interactive (list (completing-read "Example to run: " (cargo-process--list-examples))))
   (cargo-process--start (concat "Example " command)
                         (concat cargo-process--command-run-example " " command)))
 
